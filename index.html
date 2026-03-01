@@ -1186,6 +1186,9 @@
           </div>
 
           <!-- FORGE BUTTON -->
+          <button onclick="openForgeModal()" style="background:linear-gradient(135deg,#cc88ff,#8844ff); color:#000; border:none; padding:14px; border-radius:10px; font-family:'Courier New',monospace; font-weight:900; font-size:1rem; letter-spacing:3px; cursor:pointer; width:100%; margin-bottom:10px; transition:all 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+            🔮 SANCTUM AURA FORGE
+          </button>
           <button onclick="forgeDevAura()" style="background:linear-gradient(135deg,#ff00ff,#00ffcc); color:#000; border:none; padding:14px; border-radius:10px; font-family:'Courier New',monospace; font-weight:900; font-size:1rem; letter-spacing:3px; cursor:pointer; transition:all 0.2s; text-transform:uppercase;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
             ⚡ FORGE CUSTOM AURA ⚡
           </button>
@@ -2433,6 +2436,16 @@ function openDevConsole() {
     devActiveMuts.clear();
     updateDevPreview();
     populateDevEventBtns();
+
+    // Forge aura button
+    if (!document.getElementById('devForgeBtn')) {
+        let forgeBtn = document.createElement('button');
+        forgeBtn.id = 'devForgeBtn';
+        forgeBtn.textContent = '🔮 SANCTUM AURA FORGE';
+        forgeBtn.style.cssText = "width:100%;margin-top:10px;padding:8px;background:rgba(204,136,255,0.1);border:1px solid #cc88ff55;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.65rem;cursor:pointer;letter-spacing:2px;";
+        forgeBtn.onclick = function() { openForgeModal(); };
+        document.querySelector('#devModal .modal-box').appendChild(forgeBtn);
+    }
 
     // Bond cutscene test button
     if (!document.getElementById('devBondBtn')) {
@@ -7849,7 +7862,7 @@ const SANCTUM_AURAS = [
 
 // Roll all sanctum auras independently; return the rarest one that hits, or null
 function _sanctumRollAll(excludeIds) {
-    let hits = SANCTUM_AURAS.filter(a => !excludeIds.has(a.id) && Math.random() < _sanctumLuckMult / a.odds);
+    let hits = _allSanctumAuras().filter(a => !excludeIds.has(a.id) && Math.random() < _sanctumLuckMult / a.odds);
     if (hits.length === 0) return null;
     // Return rarest (highest odds value = least likely)
     return hits.reduce((best, a) => a.odds > best.odds ? a : best, hits[0]);
@@ -7877,7 +7890,7 @@ function openSanctumCrate() {
     // Roll all unowned sanctum auras independently — a whiff is possible
     let ownedSanctumIds = new Set(inventory.filter(a => a._sanctumId).map(a => a._sanctumId));
     // If every aura is already owned, refund and bail
-    if (SANCTUM_AURAS.every(a => ownedSanctumIds.has(a.id))) {
+    if (_allSanctumAuras().every(a => ownedSanctumIds.has(a.id))) {
         honkCoins += SANCTUM_CRATE_COST; updateHUD();
         showToast('\u2736 YOU OWN ALL SANCTUM AURAS', '#cc88ff');
         return;
@@ -7985,7 +7998,10 @@ function openSanctumCrate() {
     else if (template.cutscene === 'beyond') _playBeyondCutscene(newAura);
     else if (template.cutscene === 'vessel') _playVesselCutscene(newAura);
     else if (template.cutscene === 'nullconvergence') _playNullconvergenceCutscene(newAura);
-    else showToast('\u2736 ' + newAura.name + ' (' + _sanctumOddsLabel(template.odds) + ') — SANCTUM', '#cc88ff');
+    else if (template.cutscene && template.cutscene.startsWith('custom_') && template._customEffects) {
+        newAura.primary = newAura.primary || template.c1;
+        _playCustomCutscene(newAura, JSON.parse(JSON.stringify(template._customEffects)));
+    } else showToast('\u2736 ' + newAura.name + ' (' + _sanctumOddsLabel(template.odds) + ') — SANCTUM', '#cc88ff');
 
     renderSanctum();
 }
@@ -9097,8 +9113,15 @@ function _playSovereignCutscene(aura) {
 // REPLAY SYSTEM
 // ══════════════════════════════════════════════════════════════
 function replaySanctumCutscene(sanctumId) {
-    let tmpl = SANCTUM_AURAS.find(a => a.id === sanctumId);
-    if (!tmpl || !tmpl.cutscene) return;
+    let tmpl = _allSanctumAuras().find(a => a.id === sanctumId);
+    if (!tmpl) return;
+    // Handle custom forge cutscenes
+    if (tmpl.cutscene && tmpl.cutscene.startsWith('custom_') && tmpl._customEffects) {
+        let inv = inventory.find(a => a._sanctumId === sanctumId);
+        _playCustomCutscene(inv || {primary:tmpl.c1,name:tmpl.name,special:tmpl.special,lore:tmpl.lore,odds:tmpl.odds}, JSON.parse(JSON.stringify(tmpl._customEffects)));
+        return;
+    }
+    if (!tmpl.cutscene) return;
     // Merge inventory aura with template display fields so cutscene overlays render correctly
     let base = inventory.find(a => a._sanctumId === sanctumId) || { name: tmpl.name, primary: tmpl.c1 };
     let invAura = Object.assign({}, base, { special: tmpl.special || '✶', lore: tmpl.lore || '' });
@@ -9951,11 +9974,11 @@ function renderSanctum() {
     let oddsEl = document.getElementById('sanctumOddsTable');
     if (!grid) return;
 
-    if (poolEl) poolEl.textContent = SANCTUM_AURAS.length;
+    if (poolEl) poolEl.textContent = _allSanctumAuras().length;
 
     // Odds pills
     if (oddsEl) {
-        oddsEl.innerHTML = SANCTUM_AURAS.map(a =>
+        oddsEl.innerHTML = _allSanctumAuras().map(a =>
             `<span style="font-family:'Courier New',monospace;font-size:0.42rem;color:${a.c1};background:${a.c1}15;border:1px solid ${a.c1}33;border-radius:6px;padding:3px 8px;letter-spacing:1px;">
                 ${a.special || '\u2736'} ${a.name} &nbsp; ${_sanctumOddsLabel(a.odds)}
             </span>`
@@ -9975,7 +9998,7 @@ function renderSanctum() {
 
     grid.innerHTML = owned.map(a => {
         let isActive = currentSkin && currentSkin.id === a.id;
-        let tmpl = SANCTUM_AURAS.find(s => s.id === a._sanctumId) || {};
+        let tmpl = _allSanctumAuras().find(s => s.id === a._sanctumId) || {};
         return `
         <div style="background:linear-gradient(160deg,${a.bg || '#050008'},#0a0011);border:2px solid ${isActive ? a.primary : a.primary + '55'};border-radius:16px;padding:18px;position:relative;box-shadow:0 0 ${isActive?'35':'10'}px ${a.primary}${isActive?'88':'22'};transition:all 0.3s;"
             onmouseover="this.style.boxShadow='0 0 25px ${a.primary}55'" onmouseout="this.style.boxShadow='0 0 ${isActive?35:10}px ${a.primary}${isActive?'88':'22'}'">
@@ -10197,6 +10220,615 @@ function _playTier4Cutscene(aura) {
     tick(); _showCsText(2200);
     ov.addEventListener('click',()=>{ cancelAnimationFrame(raf); ov.remove();
         showToast('⊗ '+aura.name+' — 1 IN 100,000,000 — SANCTUM', c); });
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// CUSTOM SANCTUM AURA FORGE SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+// ── Storage ──
+let CUSTOM_SANCTUM_AURAS = [];
+(function loadCustomSanctum() {
+    try { CUSTOM_SANCTUM_AURAS = JSON.parse(localStorage.getItem('honkCustomSanctumAuras') || '[]'); } catch(e) { CUSTOM_SANCTUM_AURAS = []; }
+})();
+function saveCustomSanctum() {
+    try { localStorage.setItem('honkCustomSanctumAuras', JSON.stringify(CUSTOM_SANCTUM_AURAS)); } catch(e) {}
+}
+
+// Merged pool used everywhere
+function _allSanctumAuras() { return [...SANCTUM_AURAS, ...CUSTOM_SANCTUM_AURAS]; }
+
+// ── Generic cutscene engine ──
+// Effects array: [{type, duration, params}]
+// Effect types: flash, rings, burst, rain, rise, spiral, shake, glow, lightning, cracks, wipe, vortex, stars, textshow
+function _playCustomCutscene(aura, effects) {
+    let c = aura.primary || '#cc88ff';
+    let oddsLabel = aura.odds ? '1 IN ' + (aura.odds >= 1000000 ? (aura.odds/1000000).toFixed(1)+'M' : aura.odds >= 1000 ? (aura.odds/1000).toFixed(1)+'K' : aura.odds) : 'SANCTUM';
+
+    // Build overlay
+    let ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;';
+    ov.innerHTML =
+        '<canvas id="fgCanvas" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>' +
+        '<div id="fgText" style="position:relative;z-index:2;text-align:center;opacity:0;transition:opacity 1.4s ease;pointer-events:none;">' +
+        '<div style="font-size:4rem;margin-bottom:14px;filter:drop-shadow(0 0 30px '+c+');">'+(aura.special||'✦')+'</div>' +
+        '<div style="font-family:\'Courier New\',monospace;font-size:2.2rem;font-weight:bold;color:'+c+';letter-spacing:10px;text-shadow:0 0 40px '+c+';">'+aura.name+'</div>' +
+        '<div style="font-family:\'Courier New\',monospace;font-size:0.7rem;color:#888;letter-spacing:5px;margin-top:10px;">'+oddsLabel+'</div>' +
+        '<div style="font-family:\'Courier New\',monospace;font-size:0.5rem;color:#555;margin-top:8px;font-style:italic;">"'+(aura.lore||'')+'"</div>' +
+        '<div style="font-family:\'Courier New\',monospace;font-size:0.44rem;color:#333;margin-top:24px;letter-spacing:2px;">[ CLICK TO CONTINUE ]</div>' +
+        '</div>';
+    document.body.appendChild(ov);
+
+    let cv = document.getElementById('fgCanvas');
+    cv.width = window.innerWidth; cv.height = window.innerHeight;
+    let ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+
+    function ph(hex) {
+        let h=(hex||'#ffffff').replace('#','');
+        if(h.length===3)h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+        return [parseInt(h.slice(0,2),16)||200, parseInt(h.slice(2,4),16)||200, parseInt(h.slice(4,6),16)||200];
+    }
+
+    // Build timeline: assign startFrame to each effect sequentially
+    let timeline = [], t = 0;
+    effects.forEach(ef => {
+        timeline.push({ ...ef, startFrame: t, endFrame: t + (ef.duration || 60) });
+        t += (ef.duration || 60);
+    });
+    let totalFrames = t;
+    let textDelay = Math.max(800, totalFrames * (1000/60) * 0.65);
+
+    // Per-effect state (initialized lazily)
+    let effectState = {};
+
+    // Shake state
+    let shakeX = 0, shakeY = 0;
+
+    function initState(ef, id) {
+        let p = ef.params || {};
+        let col = p.color || c;
+        let [r,g,b] = ph(col);
+        switch(ef.type) {
+            case 'burst': case 'rise': case 'rain': case 'spiral':
+                effectState[id] = { particles: Array.from({length: p.count||80}, () => {
+                    if(ef.type==='burst') return {x:W/2+(Math.random()-.5)*40,y:H/2+(Math.random()-.5)*40,vx:(Math.random()-.5)*(p.speed||12),vy:(Math.random()-.5)*(p.speed||12),alpha:1,size:Math.random()*4+1.5,decay:0.01+Math.random()*0.015};
+                    if(ef.type==='rise') return {x:Math.random()*W,y:H+Math.random()*100,vx:(Math.random()-.5)*1.5,vy:-(0.8+Math.random()*(p.speed||3)),alpha:0.5+Math.random()*0.5,size:1+Math.random()*4,decay:0.003+Math.random()*0.005};
+                    if(ef.type==='rain') return {x:Math.random()*W,y:-Math.random()*H,vy:3+Math.random()*(p.speed||5),alpha:0.6+Math.random()*0.4,size:1+Math.random()*3,trail:[]};
+                    if(ef.type==='spiral') return {angle:Math.random()*Math.PI*2,dist:20+Math.random()*Math.min(W,H)*0.45,speed:0.02+Math.random()*0.04,alpha:1,size:Math.random()*3+1,inward:p.direction!=='out'};
+                }) };
+                break;
+            case 'rings': effectState[id] = { waves: [] }; break;
+            case 'lightning': effectState[id] = { bolts: [], timer: 0 }; break;
+            case 'cracks': effectState[id] = { lines: [], built: false }; break;
+            case 'vortex': effectState[id] = { stars: Array.from({length:200},()=>({angle:Math.random()*Math.PI*2,dist:Math.random()*Math.max(W,H)*0.55+40,speed:0.005+Math.random()*0.015,size:Math.random()*2.5+0.5,alpha:0.7+Math.random()*0.3})) }; break;
+            case 'stars': effectState[id] = { stars: Array.from({length:p.count||150},()=>({x:Math.random()*W,y:Math.random()*H,speed:1+Math.random()*(p.speed||4),alpha:Math.random()*0.8+0.2,size:Math.random()*2+0.5})) }; break;
+        }
+    }
+
+    function renderEffect(ef, id, localFrame, alpha) {
+        let p = ef.params || {};
+        let col = p.color || c;
+        let [r,g,b] = ph(col);
+        let st = effectState[id];
+
+        switch(ef.type) {
+            case 'flash': {
+                let fadeLen = ef.duration * 0.6;
+                let fa = localFrame < fadeLen ? (1 - localFrame/fadeLen) : 0;
+                ctx.fillStyle = `rgba(${r},${g},${b},${fa * (p.intensity||0.9)})`;
+                ctx.fillRect(0,0,W,H);
+                break;
+            }
+            case 'shake': {
+                shakeX = (Math.random()-.5) * (p.intensity||20) * Math.max(0, 1 - localFrame/(ef.duration*0.6));
+                shakeY = (Math.random()-.5) * (p.intensity||20) * Math.max(0, 1 - localFrame/(ef.duration*0.6));
+                break;
+            }
+            case 'glow': {
+                let pulse = 0.7 + Math.sin(localFrame * (p.pulseSpeed||0.1)) * 0.3;
+                let size = (p.size||200) * pulse;
+                let grd = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,size);
+                grd.addColorStop(0,`rgba(${r},${g},${b},${0.5*alpha})`);
+                grd.addColorStop(1,'rgba(0,0,0,0)');
+                ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(W/2,H/2,size,0,Math.PI*2); ctx.fill();
+                break;
+            }
+            case 'rings': {
+                if(localFrame % Math.max(1, Math.floor(8/(p.count||3))) === 0) st.waves.push({r:0, alpha:0.9});
+                st.waves = st.waves.filter(w => w.alpha > 0.01);
+                st.waves.forEach(w => {
+                    w.r += (p.speed||12); w.alpha = Math.max(0, w.alpha - 0.012);
+                    ctx.beginPath(); ctx.arc(W/2,H/2,w.r,0,Math.PI*2);
+                    ctx.strokeStyle=`rgba(${r},${g},${b},${w.alpha*alpha})`; ctx.lineWidth=2+w.alpha*4;
+                    ctx.shadowColor=col; ctx.shadowBlur=20; ctx.stroke();
+                });
+                ctx.shadowBlur=0;
+                break;
+            }
+            case 'burst': {
+                st.particles.forEach(pt => {
+                    pt.x+=pt.vx; pt.y+=pt.vy; pt.vx*=0.97; pt.vy*=0.97; pt.alpha=Math.max(0,pt.alpha-pt.decay);
+                    ctx.globalAlpha=pt.alpha*alpha; ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.shadowColor=col; ctx.shadowBlur=8;
+                    ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill();
+                });
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                break;
+            }
+            case 'rise': {
+                st.particles.forEach(pt => {
+                    pt.x+=pt.vx+(Math.random()-.5)*0.5; pt.y+=pt.vy;
+                    if(pt.y<-10){pt.y=H+10;pt.x=Math.random()*W;}
+                    ctx.globalAlpha=pt.alpha*alpha; ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.shadowColor=col; ctx.shadowBlur=5;
+                    ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill();
+                });
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                break;
+            }
+            case 'rain': {
+                st.particles.forEach(pt => {
+                    pt.trail = pt.trail||[]; pt.trail.push({x:pt.x,y:pt.y}); if(pt.trail.length>6)pt.trail.shift();
+                    pt.y+=pt.vy;
+                    if(pt.y>H+20){pt.y=-20;pt.x=Math.random()*W;pt.trail=[];}
+                    pt.trail.forEach((tp,i)=>{ ctx.globalAlpha=(i/pt.trail.length)*0.3*alpha; ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.beginPath(); ctx.arc(tp.x,tp.y,pt.size*0.5,0,Math.PI*2); ctx.fill(); });
+                    ctx.globalAlpha=pt.alpha*alpha; ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.shadowColor=col; ctx.shadowBlur=6;
+                    ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill();
+                });
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                break;
+            }
+            case 'spiral': {
+                st.particles.forEach(pt => {
+                    pt.angle += pt.speed; pt.dist += pt.inward ? -1.2 : 1.2;
+                    if(pt.inward && pt.dist<5){pt.dist=Math.min(W,H)*0.45;pt.angle=Math.random()*Math.PI*2;}
+                    if(!pt.inward && pt.dist>Math.min(W,H)*0.55){pt.dist=10;}
+                    let x=W/2+Math.cos(pt.angle)*pt.dist, y=H/2+Math.sin(pt.angle)*pt.dist;
+                    ctx.globalAlpha=pt.alpha*alpha*Math.min(1,pt.dist/40);
+                    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.shadowColor=col; ctx.shadowBlur=6;
+                    ctx.beginPath(); ctx.arc(x,y,pt.size,0,Math.PI*2); ctx.fill();
+                });
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                break;
+            }
+            case 'lightning': {
+                st.timer++;
+                if(st.timer % Math.max(1,8-Math.floor((p.intensity||3))) === 0) {
+                    st.bolts.push({life:10+Math.random()*6, x1:Math.random()*W, y1:0, x2:W/2+(Math.random()-.5)*200, y2:H/2+(Math.random()-.5)*100});
+                }
+                function bolt(x1,y1,x2,y2,d,a) {
+                    if(d<=0||a<0.05)return;
+                    let mx=(x1+x2)/2+(Math.random()-.5)*(Math.abs(x2-x1)+Math.abs(y2-y1))*0.45;
+                    let my=(y1+y2)/2+(Math.random()-.5)*(Math.abs(x2-x1)+Math.abs(y2-y1))*0.45;
+                    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.quadraticCurveTo(mx,my,x2,y2);
+                    ctx.strokeStyle=`rgba(${r},${g},${b},${a*alpha})`; ctx.lineWidth=d*0.7;
+                    ctx.shadowColor=col; ctx.shadowBlur=12; ctx.stroke();
+                    if(Math.random()<0.4) bolt(mx,my,mx+(Math.random()-.5)*150,my+(Math.random()-.5)*120,d-1,a*0.55);
+                    bolt(x1,y1,mx,my,d-1,a*0.8); bolt(mx,my,x2,y2,d-1,a*0.8);
+                }
+                st.bolts = st.bolts.filter(bl=>bl.life>0);
+                st.bolts.forEach(bl=>{ bolt(bl.x1,bl.y1,bl.x2,bl.y2,4,bl.life/16); bl.life--; });
+                ctx.shadowBlur=0;
+                break;
+            }
+            case 'cracks': {
+                if(!st.built) {
+                    st.built=true;
+                    let count=p.count||16;
+                    for(let i=0;i<count;i++) {
+                        let angle=i/count*Math.PI*2, len=60+Math.random()*260;
+                        let pts=[{x:W/2+(Math.random()-.5)*50,y:H/2+(Math.random()-.5)*50}];
+                        let ax=pts[0].x,ay=pts[0].y,ang=angle;
+                        for(let j=0;j<Math.ceil(len/10);j++){ang+=(Math.random()-.5)*0.8;ax+=Math.cos(ang)*10;ay+=Math.sin(ang)*10;pts.push({x:ax,y:ay});}
+                        st.lines.push(pts);
+                    }
+                }
+                let showPct = Math.min(1, localFrame/(ef.duration*0.5));
+                st.lines.forEach(pts=>{
+                    let show = Math.ceil(pts.length * showPct);
+                    if(show<2)return;
+                    ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+                    pts.slice(1,show).forEach(p2=>ctx.lineTo(p2.x,p2.y));
+                    ctx.strokeStyle=`rgba(${r},${g},${b},${0.9*alpha})`; ctx.lineWidth=1.5;
+                    ctx.shadowColor=col; ctx.shadowBlur=8; ctx.stroke();
+                });
+                ctx.shadowBlur=0;
+                break;
+            }
+            case 'wipe': {
+                let prog = Math.min(1, localFrame / (ef.duration * 0.5));
+                let fade = localFrame > ef.duration*0.5 ? Math.max(0, 1-(localFrame-ef.duration*0.5)/(ef.duration*0.5)) : 1;
+                ctx.globalAlpha = fade * (p.intensity||0.6) * alpha;
+                if(p.direction==='radial') {
+                    let grd=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,prog*Math.max(W,H));
+                    grd.addColorStop(0,`rgba(${r},${g},${b},1)`); grd.addColorStop(1,'rgba(0,0,0,0)');
+                    ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(W/2,H/2,prog*Math.max(W,H),0,Math.PI*2); ctx.fill();
+                } else if(p.direction==='right'||!p.direction) {
+                    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(0,0,W*prog,H);
+                } else if(p.direction==='down') {
+                    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(0,0,W,H*prog);
+                } else if(p.direction==='left') {
+                    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(W*(1-prog),0,W*prog,H);
+                } else if(p.direction==='up') {
+                    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(0,H*(1-prog),W,H*prog);
+                }
+                ctx.globalAlpha=1;
+                break;
+            }
+            case 'vortex': {
+                st.stars.forEach(s=>{
+                    s.angle += s.speed * (p.direction==='out' ? -1 : 1);
+                    s.dist = p.direction==='out' ? Math.min(s.dist+1,Math.max(W,H)*0.55) : Math.max(5,s.dist-0.8);
+                    if(s.dist<=5){s.dist=Math.max(W,H)*0.4+Math.random()*100;s.angle=Math.random()*Math.PI*2;}
+                    if(s.dist>=Math.max(W,H)*0.55){s.dist=10+Math.random()*30;}
+                    let x=W/2+Math.cos(s.angle)*s.dist, y=H/2+Math.sin(s.angle)*s.dist*0.45;
+                    ctx.globalAlpha=s.alpha*alpha*Math.min(1,s.dist/60);
+                    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.shadowColor=col; ctx.shadowBlur=4;
+                    ctx.beginPath(); ctx.arc(x,y,s.size,0,Math.PI*2); ctx.fill();
+                });
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                // Ring
+                ctx.beginPath(); ctx.arc(W/2,H/2,50+Math.sin(localFrame*0.04)*6,0,Math.PI*2);
+                ctx.strokeStyle=`rgba(${r},${g},${b},${0.7*alpha})`; ctx.lineWidth=4; ctx.shadowColor=col; ctx.shadowBlur=25; ctx.stroke(); ctx.shadowBlur=0;
+                break;
+            }
+            case 'stars': {
+                st.stars.forEach(s=>{
+                    s.y += s.speed; if(s.y>H+10)s.y=-10;
+                    ctx.globalAlpha=s.alpha*alpha; ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.shadowColor=col; ctx.shadowBlur=4;
+                    ctx.beginPath(); ctx.arc(s.x,s.y,s.size,0,Math.PI*2); ctx.fill();
+                    // Speed trail
+                    ctx.globalAlpha=s.alpha*0.2*alpha;
+                    ctx.fillRect(s.x,s.y-s.speed*3,1,s.speed*3);
+                });
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                break;
+            }
+            case 'textshow': {
+                let fadeIn = Math.min(1, localFrame/15);
+                let fadeOut = localFrame > ef.duration-15 ? Math.max(0,(ef.duration-localFrame)/15) : 1;
+                ctx.globalAlpha=fadeIn*fadeOut*alpha;
+                ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=20;
+                ctx.textAlign='center'; ctx.font=`bold ${p.size||32}px 'Courier New',monospace`;
+                ctx.fillText(p.content||'...', W/2, H/2 + (p.offsetY||0));
+                ctx.globalAlpha=1; ctx.shadowBlur=0;
+                break;
+            }
+        }
+    }
+
+    let frame = 0, raf;
+    function tick() {
+        shakeX *= 0.85; shakeY *= 0.85;
+        ctx.save(); ctx.translate(shakeX, shakeY);
+        ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(-40,-40,W+80,H+80);
+
+        timeline.forEach((ef, id) => {
+            if(frame < ef.startFrame || frame >= ef.endFrame) return;
+            let localFrame = frame - ef.startFrame;
+            let dur = ef.duration || 60;
+            // Fade in/out at edges for smooth transitions
+            let edgeFade = Math.min(Math.min(localFrame, dur-localFrame) / 8, 1);
+            if(!effectState[id]) initState(ef, id);
+            renderEffect(ef, id, localFrame, edgeFade);
+        });
+
+        ctx.restore();
+        frame++;
+        raf = requestAnimationFrame(tick);
+    }
+    tick();
+    setTimeout(() => { let t=document.getElementById('fgText'); if(t) t.style.opacity='1'; }, textDelay);
+    ov.addEventListener('click', () => { cancelAnimationFrame(raf); ov.remove(); showToast('✦ '+aura.name+' — '+oddsLabel+' — SANCTUM', c); });
+}
+
+// ════════════════════════════════════════════════════════════════
+// FORGE MODAL
+// ════════════════════════════════════════════════════════════════
+
+let _forgeEffects = [];
+let _forgePreviewRaf = null;
+
+const FORGE_EFFECT_DEFS = {
+    flash:    { label:'FLASH',     color:true, params:{intensity:{type:'range',min:0.1,max:1,step:0.1,default:0.9,label:'Intensity'}} },
+    shake:    { label:'SHAKE',     color:false, params:{intensity:{type:'range',min:5,max:60,step:5,default:20,label:'Strength'}} },
+    glow:     { label:'GLOW',      color:true, params:{size:{type:'range',min:50,max:500,step:25,default:200,label:'Size'},pulseSpeed:{type:'range',min:0.02,max:0.3,step:0.02,default:0.1,label:'Pulse Speed'}} },
+    rings:    { label:'RINGS',     color:true, params:{count:{type:'range',min:1,max:10,step:1,default:4,label:'Density'},speed:{type:'range',min:4,max:24,step:2,default:12,label:'Speed'}} },
+    burst:    { label:'BURST',     color:true, params:{count:{type:'range',min:20,max:200,step:10,default:80,label:'Count'},speed:{type:'range',min:4,max:24,step:2,default:12,label:'Speed'}} },
+    rain:     { label:'RAIN',      color:true, params:{count:{type:'range',min:10,max:150,step:10,default:60,label:'Count'},speed:{type:'range',min:2,max:12,step:1,default:5,label:'Speed'}} },
+    rise:     { label:'RISE',      color:true, params:{count:{type:'range',min:20,max:150,step:10,default:60,label:'Count'},speed:{type:'range',min:1,max:8,step:0.5,default:3,label:'Speed'}} },
+    spiral:   { label:'SPIRAL',    color:true, params:{count:{type:'range',min:20,max:200,step:10,default:80,label:'Count'},direction:{type:'select',options:['in','out'],default:'in',label:'Direction'}} },
+    lightning:{ label:'LIGHTNING', color:true, params:{intensity:{type:'range',min:1,max:6,step:1,default:3,label:'Intensity'}} },
+    cracks:   { label:'CRACKS',    color:true, params:{count:{type:'range',min:4,max:32,step:2,default:16,label:'Count'}} },
+    wipe:     { label:'WIPE',      color:true, params:{direction:{type:'select',options:['right','left','down','up','radial'],default:'radial',label:'Direction'},intensity:{type:'range',min:0.1,max:1,step:0.1,default:0.6,label:'Opacity'}} },
+    vortex:   { label:'VORTEX',    color:true, params:{direction:{type:'select',options:['in','out'],default:'in',label:'Direction'}} },
+    stars:    { label:'STARS',     color:true, params:{count:{type:'range',min:20,max:300,step:20,default:150,label:'Count'},speed:{type:'range',min:1,max:10,step:1,default:4,label:'Speed'}} },
+    textshow: { label:'TEXT',      color:true, params:{content:{type:'text',default:'...',label:'Text'},size:{type:'range',min:12,max:80,step:4,default:32,label:'Size'},offsetY:{type:'range',min:-300,max:300,step:20,default:0,label:'Y Offset'}} },
+};
+
+function openForgeModal() {
+    // Close dev modal
+    let dm = document.getElementById('devModal');
+    if(dm) dm.style.display='none';
+
+    _forgeEffects = [];
+    let existing = document.getElementById('forgeModal');
+    if(existing) existing.remove();
+
+    let fm = document.createElement('div');
+    fm.id = 'forgeModal';
+    fm.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:rgba(0,0,0,0.97);display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:20px 0;';
+    fm.innerHTML = `
+    <div style="background:#060008;border:1px solid #cc88ff;border-radius:18px;padding:30px;max-width:780px;width:95%;font-family:'Courier New',monospace;">
+        <div style="text-align:center;margin-bottom:24px;">
+            <div style="font-size:2rem;color:#cc88ff;letter-spacing:6px;font-weight:bold;text-shadow:0 0 30px #cc88ff;">🔮 SANCTUM AURA FORGE</div>
+            <div style="font-size:0.55rem;color:#553366;letter-spacing:3px;margin-top:6px;">CREATE A FULLY CUSTOM SANCTUM AURA WITH YOUR OWN CUTSCENE</div>
+        </div>
+
+        <!-- Aura Properties -->
+        <div style="background:rgba(204,136,255,0.04);border:1px solid #cc88ff22;border-radius:12px;padding:18px;margin-bottom:20px;">
+            <div style="font-size:0.6rem;color:#cc88ff;letter-spacing:3px;margin-bottom:14px;">── AURA PROPERTIES ──</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div>
+                    <div style="font-size:0.48rem;color:#553366;letter-spacing:2px;margin-bottom:4px;">NAME</div>
+                    <input id="fgName" value="MY SANCTUM AURA" style="width:100%;box-sizing:border-box;background:#0a0011;border:1px solid #cc88ff33;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.65rem;padding:7px 10px;outline:none;">
+                </div>
+                <div>
+                    <div style="font-size:0.48rem;color:#553366;letter-spacing:2px;margin-bottom:4px;">ODDS (1 in X)</div>
+                    <input id="fgOdds" type="number" value="100000" min="1" style="width:100%;box-sizing:border-box;background:#0a0011;border:1px solid #cc88ff33;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.65rem;padding:7px 10px;outline:none;">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                ${['fgC1:#cc88ff:COLOR 1','fgC2:#8844ff:COLOR 2','fgC3:#ff88cc:COLOR 3','fgBG:#030006:BG'].map(s=>{
+                    let [id,def,lab]=s.split(':');
+                    return `<div><div style="font-size:0.45rem;color:#553366;letter-spacing:2px;margin-bottom:4px;">${lab}</div><div style="display:flex;gap:5px;align-items:center;"><input id="${id}pick" type="color" value="${def}" style="width:32px;height:28px;border:none;background:none;cursor:pointer;border-radius:4px;" oninput="document.getElementById('${id}').value=this.value;_forgePreview()"><input id="${id}" value="${def}" maxlength="7" style="flex:1;background:#0a0011;border:1px solid #cc88ff22;border-radius:6px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.55rem;padding:5px 6px;outline:none;" oninput="document.getElementById('${id}pick').value=this.value;_forgePreview()"></div></div>`;
+                }).join('')}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                <div>
+                    <div style="font-size:0.48rem;color:#553366;letter-spacing:2px;margin-bottom:4px;">MULTIPLIER</div>
+                    <input id="fgMult" type="number" value="25" min="0.1" step="0.5" style="width:100%;box-sizing:border-box;background:#0a0011;border:1px solid #cc88ff33;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.65rem;padding:7px 10px;outline:none;">
+                </div>
+                <div>
+                    <div style="font-size:0.48rem;color:#553366;letter-spacing:2px;margin-bottom:4px;">SPECIAL ICON</div>
+                    <input id="fgSpecial" value="✦" style="width:100%;box-sizing:border-box;background:#0a0011;border:1px solid #cc88ff33;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.9rem;padding:7px 10px;outline:none;text-align:center;">
+                </div>
+                <div>
+                    <div style="font-size:0.48rem;color:#553366;letter-spacing:2px;margin-bottom:4px;">LORE</div>
+                    <input id="fgLore" placeholder="Flavour text..." style="width:100%;box-sizing:border-box;background:#0a0011;border:1px solid #cc88ff33;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.55rem;padding:7px 10px;outline:none;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Aura Preview -->
+        <div style="display:flex;align-items:center;gap:16px;background:rgba(204,136,255,0.03);border:1px solid #cc88ff11;border-radius:10px;padding:14px;margin-bottom:20px;">
+            <div id="forgeOrbPreview" style="width:64px;height:64px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#cc88ff,#8844ff);border:2px solid #cc88ff;box-shadow:0 0 20px #cc88ff44;animation:sanctumFloat 3s ease-in-out infinite;"></div>
+            <div>
+                <div id="forgeNamePreview" style="font-size:0.75rem;color:#cc88ff;font-weight:bold;letter-spacing:2px;">MY SANCTUM AURA</div>
+                <div id="forgeMultPreview" style="font-size:0.6rem;color:#8844ff;margin-top:3px;">25x MULT</div>
+                <div id="forgeLorePreview" style="font-size:0.45rem;color:#553366;font-style:italic;margin-top:3px;"></div>
+            </div>
+        </div>
+
+        <!-- Cutscene Builder -->
+        <div style="background:rgba(204,136,255,0.04);border:1px solid #cc88ff22;border-radius:12px;padding:18px;margin-bottom:20px;">
+            <div style="font-size:0.6rem;color:#cc88ff;letter-spacing:3px;margin-bottom:12px;">── CUTSCENE BUILDER ──</div>
+            <div style="font-size:0.45rem;color:#442255;letter-spacing:1px;margin-bottom:12px;">Effects play in order. Each effect has its own duration (frames). Mix and match freely.</div>
+            
+            <!-- Add effect picker -->
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+                <select id="fgEffectType" style="background:#0a0011;border:1px solid #cc88ff44;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.6rem;padding:7px 10px;outline:none;cursor:pointer;">
+                    ${Object.entries(FORGE_EFFECT_DEFS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}
+                </select>
+                <button onclick="_forgeAddEffect()" style="padding:7px 16px;background:rgba(204,136,255,0.12);border:1px solid #cc88ff44;border-radius:8px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.6rem;cursor:pointer;letter-spacing:2px;" onmouseover="this.style.background='rgba(204,136,255,0.25)'" onmouseout="this.style.background='rgba(204,136,255,0.12)'">+ ADD EFFECT</button>
+                <button onclick="_forgePreviewCutscene()" style="padding:7px 16px;background:rgba(0,255,180,0.08);border:1px solid #00ffaa44;border-radius:8px;color:#00ffaa;font-family:'Courier New',monospace;font-size:0.6rem;cursor:pointer;letter-spacing:2px;" onmouseover="this.style.background='rgba(0,255,180,0.18)'" onmouseout="this.style.background='rgba(0,255,180,0.08)'">▶ PREVIEW</button>
+            </div>
+
+            <!-- Effects list -->
+            <div id="fgEffectList" style="display:flex;flex-direction:column;gap:8px;min-height:40px;">
+                <div style="font-size:0.5rem;color:#331144;text-align:center;padding:20px 0;" id="fgEmptyMsg">No effects yet. Add some above.</div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:10px;">
+            <button onclick="_forgeCreateAura()" style="flex:1;padding:12px;background:rgba(204,136,255,0.12);border:1px solid #cc88ff66;border-radius:10px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.7rem;cursor:pointer;letter-spacing:3px;" onmouseover="this.style.background='rgba(204,136,255,0.25)'" onmouseout="this.style.background='rgba(204,136,255,0.12)'">🔮 FORGE INTO SANCTUM</button>
+            <button onclick="document.getElementById('forgeModal').remove();document.getElementById('devModal').style.display='flex';" style="padding:12px 20px;background:rgba(255,80,80,0.08);border:1px solid #ff444433;border-radius:10px;color:#ff4444;font-family:'Courier New',monospace;font-size:0.65rem;cursor:pointer;letter-spacing:2px;">✕ CLOSE</button>
+        </div>
+
+        <!-- Custom auras list -->
+        <div id="forgeCustomList" style="margin-top:20px;"></div>
+    </div>`;
+
+    document.body.appendChild(fm);
+    _forgeRenderCustomList();
+    _forgePreview();
+}
+
+function _forgePreview() {
+    let c1 = document.getElementById('fgC1pick')?.value||'#cc88ff';
+    let c2 = document.getElementById('fgC2pick')?.value||'#8844ff';
+    let c3 = document.getElementById('fgC3pick')?.value||'#ff88cc';
+    let orb = document.getElementById('forgeOrbPreview');
+    if(orb){ orb.style.background=`linear-gradient(135deg,${c1},${c2},${c3})`; orb.style.borderColor=c1; orb.style.boxShadow=`0 0 20px ${c1}44,0 0 40px ${c2}22`; }
+    let nm = document.getElementById('forgeNamePreview');
+    if(nm){ nm.textContent=(document.getElementById('fgName')?.value||'').toUpperCase()||'MY SANCTUM AURA'; nm.style.color=c1; }
+    let ml = document.getElementById('forgeMultPreview');
+    if(ml){ ml.textContent=(document.getElementById('fgMult')?.value||'25')+'x MULT'; ml.style.color=c2; }
+    let lo = document.getElementById('forgeLorePreview');
+    if(lo){ lo.textContent=document.getElementById('fgLore')?.value||''; }
+}
+
+// Live preview listeners
+setTimeout(()=>{
+    ['fgName','fgMult','fgLore'].forEach(id=>{ let el=document.getElementById(id); if(el) el.addEventListener('input',_forgePreview); });
+},100);
+
+function _forgeAddEffect() {
+    let type = document.getElementById('fgEffectType')?.value || 'rings';
+    let def = FORGE_EFFECT_DEFS[type];
+    let defaultParams = {};
+    Object.entries(def.params||{}).forEach(([k,v])=>{ defaultParams[k]=v.default; });
+    let color = document.getElementById('fgC1pick')?.value || '#cc88ff';
+    _forgeEffects.push({ type, duration:60, params:{ ...defaultParams, color } });
+    _forgeRenderEffectList();
+}
+
+function _forgeRemoveEffect(i) {
+    _forgeEffects.splice(i,1);
+    _forgeRenderEffectList();
+}
+
+function _forgeMoveEffect(i, dir) {
+    let j = i + dir;
+    if(j<0||j>=_forgeEffects.length) return;
+    [_forgeEffects[i],_forgeEffects[j]]=[_forgeEffects[j],_forgeEffects[i]];
+    _forgeRenderEffectList();
+}
+
+function _forgeRenderEffectList() {
+    let list = document.getElementById('fgEffectList');
+    let empty = document.getElementById('fgEmptyMsg');
+    if(!list) return;
+    if(empty) empty.style.display = _forgeEffects.length===0?'block':'none';
+
+    // Remove old cards (keep empty msg)
+    [...list.querySelectorAll('.fg-card')].forEach(el=>el.remove());
+
+    _forgeEffects.forEach((ef,i)=>{
+        let def = FORGE_EFFECT_DEFS[ef.type];
+        let card = document.createElement('div');
+        card.className = 'fg-card';
+        card.style.cssText = `background:rgba(204,136,255,0.06);border:1px solid #cc88ff22;border-radius:10px;padding:12px;`;
+
+        let header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-family:'Courier New',monospace;font-size:0.62rem;color:#cc88ff;letter-spacing:2px;font-weight:bold;">${i+1}. ${def.label}</span>
+            <span style="flex:1;"></span>
+            <button onclick="_forgeMoveEffect(${i},-1)" style="background:none;border:1px solid #cc88ff33;border-radius:4px;color:#cc88ff;cursor:pointer;font-size:0.55rem;padding:2px 7px;" ${i===0?'disabled':''}>▲</button>
+            <button onclick="_forgeMoveEffect(${i},1)" style="background:none;border:1px solid #cc88ff33;border-radius:4px;color:#cc88ff;cursor:pointer;font-size:0.55rem;padding:2px 7px;" ${i===_forgeEffects.length-1?'disabled':''}>▼</button>
+            <button onclick="_forgeRemoveEffect(${i})" style="background:none;border:1px solid #ff444433;border-radius:4px;color:#ff4444;cursor:pointer;font-size:0.55rem;padding:2px 7px;">✕</button>
+        </div>`;
+
+        // Duration slider
+        let durRow = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-family:'Courier New',monospace;font-size:0.48rem;color:#553366;letter-spacing:1px;width:70px;">DURATION</span>
+            <input type="range" min="10" max="300" step="10" value="${ef.duration}" style="flex:1;"
+                oninput="this.nextElementSibling.textContent=this.value+'f';_forgeEffects[${i}].duration=parseInt(this.value);">
+            <span style="font-family:'Courier New',monospace;font-size:0.5rem;color:#cc88ff;width:36px;">${ef.duration}f</span>
+        </div>`;
+
+        // Color picker if applicable
+        let colorRow = '';
+        if(def.color) {
+            colorRow = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="font-family:'Courier New',monospace;font-size:0.48rem;color:#553366;letter-spacing:1px;width:70px;">COLOR</span>
+                <input type="color" value="${ef.params.color||'#cc88ff'}" style="width:32px;height:24px;border:none;background:none;cursor:pointer;border-radius:4px;"
+                    oninput="_forgeEffects[${i}].params.color=this.value">
+            </div>`;
+        }
+
+        // Extra params
+        let extraRows = Object.entries(def.params||{}).map(([key,pd])=>{
+            if(key==='color') return '';
+            let val = ef.params[key]!==undefined ? ef.params[key] : pd.default;
+            if(pd.type==='range') {
+                return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <span style="font-family:'Courier New',monospace;font-size:0.45rem;color:#553366;letter-spacing:1px;width:70px;">${pd.label.toUpperCase()}</span>
+                    <input type="range" min="${pd.min}" max="${pd.max}" step="${pd.step}" value="${val}" style="flex:1;"
+                        oninput="this.nextElementSibling.textContent=this.value;_forgeEffects[${i}].params.${key}=parseFloat(this.value);">
+                    <span style="font-family:'Courier New',monospace;font-size:0.48rem;color:#cc88ff;width:36px;">${val}</span>
+                </div>`;
+            } else if(pd.type==='select') {
+                return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <span style="font-family:'Courier New',monospace;font-size:0.45rem;color:#553366;letter-spacing:1px;width:70px;">${pd.label.toUpperCase()}</span>
+                    <select style="background:#0a0011;border:1px solid #cc88ff33;border-radius:6px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.52rem;padding:4px 8px;outline:none;cursor:pointer;"
+                        onchange="_forgeEffects[${i}].params.${key}=this.value">
+                        ${pd.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o.toUpperCase()}</option>`).join('')}
+                    </select>
+                </div>`;
+            } else if(pd.type==='text') {
+                return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <span style="font-family:'Courier New',monospace;font-size:0.45rem;color:#553366;letter-spacing:1px;width:70px;">${pd.label.toUpperCase()}</span>
+                    <input value="${val}" style="flex:1;background:#0a0011;border:1px solid #cc88ff33;border-radius:6px;color:#cc88ff;font-family:'Courier New',monospace;font-size:0.55rem;padding:4px 8px;outline:none;"
+                        oninput="_forgeEffects[${i}].params.${key}=this.value">
+                </div>`;
+            }
+            return '';
+        }).join('');
+
+        card.innerHTML = header + durRow + colorRow + extraRows;
+        list.appendChild(card);
+    });
+}
+
+function _forgePreviewCutscene() {
+    if(_forgeEffects.length===0){ showToast('ADD SOME EFFECTS FIRST', '#ff4444'); return; }
+    // Build dummy aura from current fields
+    let dummyAura = {
+        primary: document.getElementById('fgC1pick')?.value||'#cc88ff',
+        accent:  document.getElementById('fgC2pick')?.value||'#8844ff',
+        tertiary:document.getElementById('fgC3pick')?.value||'#ff88cc',
+        name: (document.getElementById('fgName')?.value||'PREVIEW').toUpperCase(),
+        special: document.getElementById('fgSpecial')?.value||'✦',
+        lore: document.getElementById('fgLore')?.value||'',
+        odds: parseInt(document.getElementById('fgOdds')?.value)||100000,
+    };
+    let fm = document.getElementById('forgeModal');
+    if(fm) fm.style.display='none';
+    _playCustomCutscene(dummyAura, JSON.parse(JSON.stringify(_forgeEffects)));
+    // Re-show forge modal when cutscene dismissed
+    let check = setInterval(()=>{ if(!document.getElementById('fgCanvas')){ if(fm) fm.style.display='flex'; clearInterval(check); } },200);
+}
+
+function _forgeCreateAura() {
+    let name = (document.getElementById('fgName')?.value||'').trim().toUpperCase();
+    if(!name){ showToast('ENTER A NAME', '#ff4444'); return; }
+    if(_forgeEffects.length===0){ showToast('ADD AT LEAST ONE EFFECT', '#ff4444'); return; }
+
+    let id = 'custom_' + Date.now();
+    let aura = {
+        id,
+        name,
+        c1: document.getElementById('fgC1pick')?.value||'#cc88ff',
+        c2: document.getElementById('fgC2pick')?.value||'#8844ff',
+        c3: document.getElementById('fgC3pick')?.value||'#ff88cc',
+        bg: document.getElementById('fgBGpick')?.value||'#030006',
+        mult: parseFloat(document.getElementById('fgMult')?.value)||25,
+        lore: document.getElementById('fgLore')?.value||'',
+        special: document.getElementById('fgSpecial')?.value||'✦',
+        odds: parseInt(document.getElementById('fgOdds')?.value)||100000,
+        cutscene: 'custom_' + id,
+        _customEffects: JSON.parse(JSON.stringify(_forgeEffects)),
+        _isCustomForge: true
+    };
+
+    CUSTOM_SANCTUM_AURAS.push(aura);
+    saveCustomSanctum();
+    showToast('🔮 ' + name + ' FORGED INTO SANCTUM', '#cc88ff');
+    _forgeRenderCustomList();
+    renderSanctum();
+}
+
+function _forgeDeleteCustom(id) {
+    CUSTOM_SANCTUM_AURAS = CUSTOM_SANCTUM_AURAS.filter(a=>a.id!==id);
+    saveCustomSanctum();
+    _forgeRenderCustomList();
+    renderSanctum();
+}
+
+function _forgeRenderCustomList() {
+    let el = document.getElementById('forgeCustomList');
+    if(!el) return;
+    if(CUSTOM_SANCTUM_AURAS.length===0){ el.innerHTML=''; return; }
+    el.innerHTML = `<div style="font-size:0.55rem;color:#cc88ff;letter-spacing:3px;margin-bottom:10px;margin-top:4px;">── FORGED AURAS (${CUSTOM_SANCTUM_AURAS.length}) ──</div>` +
+        CUSTOM_SANCTUM_AURAS.map(a=>`
+        <div style="display:flex;align-items:center;gap:10px;background:rgba(204,136,255,0.04);border:1px solid ${a.c1}33;border-radius:10px;padding:10px;margin-bottom:6px;">
+            <div style="width:36px;height:36px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,${a.c1},${a.c2},${a.c3});border:1px solid ${a.c1}66;box-shadow:0 0 10px ${a.c1}44;"></div>
+            <div style="flex:1;">
+                <div style="font-size:0.6rem;color:${a.c1};font-weight:bold;letter-spacing:2px;">${a.name}</div>
+                <div style="font-size:0.48rem;color:#553366;">${a.mult}x &nbsp;·&nbsp; 1 in ${a.odds.toLocaleString()} &nbsp;·&nbsp; ${(a._customEffects||[]).length} effects</div>
+            </div>
+            <button onclick="_forgeDeleteCustom('${a.id}')" style="background:none;border:1px solid #ff444433;border-radius:6px;color:#ff4444;cursor:pointer;font-size:0.5rem;padding:4px 10px;font-family:'Courier New',monospace;">DELETE</button>
+        </div>`).join('');
 }
 
 function saveAll() {
@@ -11658,8 +12290,8 @@ function _playNullconvergenceCutscene(aura) {
     const RGB = COLS.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 
     // 5 reality panels, each with its own glitch data
-    let panels = COLS.map((col,[pr,pg,pb],i)=>({
-        x: i*W/5, w: W/5, col, rgb:[pr,pg,pb],
+    let panels = COLS.map((col,i)=>({
+        x: i*W/5, w: W/5, col, rgb:RGB[i],
         noiseLines: Array.from({length:40},()=>({
             y:Math.random()*H, vy:(Math.random()-.5)*5,
             w:10+Math.random()*(W/5*.9), alpha:.15+Math.random()*.35
